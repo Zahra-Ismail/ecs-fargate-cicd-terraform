@@ -9,12 +9,10 @@ terraform {
   }
 
   backend "s3" {
-    bucket         = var.tf_state_bucket
-    key            = "ecs-fargate-demo/terraform.tfstate"
-    region         = var.aws_region
-    dynamodb_table = var.tf_lock_table
-    encrypt        = true
-  }
+  key            = "ecs-fargate-demo/terraform.tfstate"
+  encrypt        = true
+}
+
 }
 
 provider "aws" {
