@@ -12,32 +12,53 @@ jobs:
       id-token: write
       contents: read
 
+    env:
+      AWS_REGION: eu-north-1
+      TF_VAR_aws_region: eu-north-1
+      TF_VAR_project: ${{ secrets.PROJECT }}
+      TF_VAR_tf_state_bucket: ${{ secrets.TF_STATE_BUCKET }}
+      TF_VAR_tf_lock_table: ${{ secrets.TF_LOCK_TABLE }}
+      TF_VAR_ecr_repo_name: ${{ secrets.ECR_REPO_NAME }}
+
     steps:
-    - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-    - name: Configure AWS credentials
-      uses: aws-actions/configure-aws-credentials@v4
-      with:
-        role-to-assume: arn:aws:iam::621072894747:role/ECS_GitHub
-        aws-region: eu-north-1
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::621072894747:role/ECS_GitHub
+          aws-region: ${{ env.AWS_REGION }}
 
-    - name: Login to Amazon ECR
-      uses: aws-actions/amazon-ecr-login@v2
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
 
-    - name: Build and push Docker image
-      run: |
-        docker build -f Dockerfile -t ecs-app .
-        docker tag ecs-app:latest 621072894747.dkr.ecr.eu-north-1.amazonaws.com/ecs-app-repo:latest
-        docker push 621072894747.dkr.ecr.eu-north-1.amazonaws.com/ecs-app-repo:latest
+      - name: Terraform Init
+        working-directory: terraform
+        run: |
+          terraform init \
+            -backend-config="bucket=${TF_VAR_tf_state_bucket}" \
+            -backend-config="region=${AWS_REGION}" \
+            -backend-config="dynamodb_table=${TF_VAR_tf_lock_table}"
 
-    - name: Setup Terraform
-      uses: hashicorp/setup-terraform@v3
+      - name: Terraform Apply (Provision Infra)
+        working-directory: terraform
+        run: terraform apply -auto-approve
 
-    - name: Terraform Init
-      run: |
-        cd terraform
-        terraform init
-    - name: Terraform Apply
-      run: |
-        cd terraform
-        terraform apply -auto-approve
+      - name: Login to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push Docker image
+        run: |
+          ACCOUNT_ID=621072894747
+          IMAGE_URI=$ACCOUNT_ID.dkr.ecr.${AWS_REGION}.amazonaws.com/${TF_VAR_ecr_repo_name}:latest
+          docker build -t ecs-app .
+          docker tag ecs-app:latest $IMAGE_URI
+          docker push $IMAGE_URI
+
+      - name: Force ECS new deployment
+        run: |
+          aws ecs update-service \
+            --cluster ${TF_VAR_project} \
+            --service ${TF_VAR_project}-app \
+            --force-new-deployment \
+            --region ${AWS_REGION}
