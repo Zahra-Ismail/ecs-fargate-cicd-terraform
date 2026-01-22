@@ -1,4 +1,4 @@
-name: Terraform + Build + Deploy (ECS Fargate)
+name: terraform + Build + Deploy (ECS Fargate)
 
 on:
   push:
@@ -29,13 +29,13 @@ jobs:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Setup Terraform
+      - name: Setup terraform
         uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: 1.6.6
 
-      - name: Terraform Init
-        working-directory: terraform
+      - name: terraform Init
+        working-directory: Terraform
         run: |
           terraform init \
             -backend-config="bucket=${TF_STATE_BUCKET}" \
@@ -43,7 +43,7 @@ jobs:
             -backend-config="dynamodb_table=${TF_LOCK_TABLE}" \
             -backend-config="key=ecs-fargate-demo/terraform.tfstate"
 
-      - name: Terraform Apply (Provision Infra)
+      - name: terraform Apply
         working-directory: terraform
         run: |
           terraform apply -auto-approve \
@@ -57,7 +57,7 @@ jobs:
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Build and push Docker image
+      - name: Build and Push Docker Image
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
           IMAGE_TAG: ${{ github.sha }}
@@ -67,10 +67,7 @@ jobs:
           docker push ${ECR_REGISTRY}/${ECR_REPO}:${IMAGE_TAG}
           docker push ${ECR_REGISTRY}/${ECR_REPO}:latest
 
-      # NOTE: The ECS service name below must match what Terraform created.
-      # With the terraform-aws-modules/ecs module using services = { app = {...} },
-      # the service name often becomes "<PROJECT>-app".
-      - name: Force new ECS deployment (pull latest)
+      - name: Force new ECS deployment
         run: |
           aws ecs update-service \
             --cluster ${PROJECT} \
@@ -78,7 +75,7 @@ jobs:
             --force-new-deployment \
             --region ${AWS_REGION}
 
-      - name: Wait for ECS service stability
+      - name: Wait for ECS stability
         run: |
           aws ecs wait services-stable \
             --cluster ${PROJECT} \
