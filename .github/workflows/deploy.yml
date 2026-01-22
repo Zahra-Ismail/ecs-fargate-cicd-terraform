@@ -1,16 +1,19 @@
-name: Build and Deploy to ECS Fargate
+name: Terraform + Build + Deploy (ECS Fargate)
 
 on:
   push:
-    branches: [ "main" ]
+    branches: ["main"]
 
 permissions:
-  id-token: write   # required for OIDC
+  id-token: write
   contents: read
 
 env:
-  AWS_REGION: us-east-1
-  PROJECT: flask-fargate
+  AWS_REGION: ${{ vars.AWS_REGION }}
+  PROJECT: flask-fargate-demo
+  ECR_REPO: ${{ vars.ECR_REPO }}
+  TF_STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
+  TF_LOCK_TABLE: ${{ vars.TF_LOCK_TABLE }}
 
 jobs:
   deploy:
@@ -23,39 +26,61 @@ jobs:
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: arn:aws:iam::395512255485:role/github-actions-ecs-fargate-role
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
-
-      - name: Login to ECR
-        id: ecr
-        uses: aws-actions/amazon-ecr-login@v2
-
-      - name: Build and Push Docker image
-        id: build
-        env:
-          ECR_REGISTRY: ${{ steps.ecr.outputs.registry }}
-          IMAGE_TAG: ${{ github.sha }}
-        run: |
-          # Repo name matches Terraform: ${PROJECT}-repo
-          ECR_REPO="${PROJECT}-repo"
-          IMAGE_URI="$ECR_REGISTRY/$ECR_REPO:$IMAGE_TAG"
-
-          docker build -t "$IMAGE_URI" .
-          docker push "$IMAGE_URI"
-
-          echo "image_uri=$IMAGE_URI" >> $GITHUB_OUTPUT
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.6.6
 
       - name: Terraform Init
-        working-directory: infra
-        run: terraform init
+        working-directory: terraform
+        run: |
+          terraform init \
+            -backend-config="bucket=${TF_STATE_BUCKET}" \
+            -backend-config="region=${AWS_REGION}" \
+            -backend-config="dynamodb_table=${TF_LOCK_TABLE}" \
+            -backend-config="key=ecs-fargate-demo/terraform.tfstate"
 
-      - name: Terraform Apply
-        working-directory: infra
+      - name: Terraform Apply (Provision Infra)
+        working-directory: terraform
         run: |
           terraform apply -auto-approve \
             -var="aws_region=${AWS_REGION}" \
             -var="project=${PROJECT}" \
-            -var="image_uri=${{ steps.build.outputs.image_uri }}"
+            -var="ecr_repo_name=${ECR_REPO}" \
+            -var="tf_state_bucket=${TF_STATE_BUCKET}" \
+            -var="tf_lock_table=${TF_LOCK_TABLE}"
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push Docker image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker build -t ${ECR_REGISTRY}/${ECR_REPO}:${IMAGE_TAG} .
+          docker tag ${ECR_REGISTRY}/${ECR_REPO}:${IMAGE_TAG} ${ECR_REGISTRY}/${ECR_REPO}:latest
+          docker push ${ECR_REGISTRY}/${ECR_REPO}:${IMAGE_TAG}
+          docker push ${ECR_REGISTRY}/${ECR_REPO}:latest
+
+      # NOTE: The ECS service name below must match what Terraform created.
+      # With the terraform-aws-modules/ecs module using services = { app = {...} },
+      # the service name often becomes "<PROJECT>-app".
+      - name: Force new ECS deployment (pull latest)
+        run: |
+          aws ecs update-service \
+            --cluster ${PROJECT} \
+            --service ${PROJECT}-app \
+            --force-new-deployment \
+            --region ${AWS_REGION}
+
+      - name: Wait for ECS service stability
+        run: |
+          aws ecs wait services-stable \
+            --cluster ${PROJECT} \
+            --services ${PROJECT}-app \
+            --region ${AWS_REGION}
