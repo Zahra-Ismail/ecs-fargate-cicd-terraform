@@ -1,4 +1,4 @@
-name: CI/CD to ECS
+name: Terraform + Build + Deploy (ECS Fargate)
 
 on:
   push:
