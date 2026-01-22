@@ -1,4 +1,4 @@
-name: Terraform + Build + Deploy (ECS Fargate)
+name: Terraform + Build + Deploy Fargate
 
 on:
   push:
