@@ -1,0 +1,61 @@
+name: Build and Deploy to ECS Fargate
+
+on:
+  push:
+    branches: [ "main" ]
+
+permissions:
+  id-token: write   # required for OIDC
+  contents: read
+
+env:
+  AWS_REGION: us-east-1
+  PROJECT: flask-fargate
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::<ACCOUNT_ID>:role/<GITHUB_ACTIONS_ROLE_NAME>
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to ECR
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and Push Docker image
+        id: build
+        env:
+          ECR_REGISTRY: ${{ steps.ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          # Repo name matches Terraform: ${PROJECT}-repo
+          ECR_REPO="${PROJECT}-repo"
+          IMAGE_URI="$ECR_REGISTRY/$ECR_REPO:$IMAGE_TAG"
+
+          docker build -t "$IMAGE_URI" .
+          docker push "$IMAGE_URI"
+
+          echo "image_uri=$IMAGE_URI" >> $GITHUB_OUTPUT
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Terraform Init
+        working-directory: infra
+        run: terraform init
+
+      - name: Terraform Apply
+        working-directory: infra
+        run: |
+          terraform apply -auto-approve \
+            -var="aws_region=${AWS_REGION}" \
+            -var="project=${PROJECT}" \
+            -var="image_uri=${{ steps.build.outputs.image_uri }}"
