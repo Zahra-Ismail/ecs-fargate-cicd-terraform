@@ -1,1 +1,103 @@
+name: Build, Provision (Terraform), and Deploy to ECS Fargate
+
+on:
+  push:
+    branches: ["main"]
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: eu-north-1
+  PROJECT_NAME: flask-ecs-fargate
+  TF_DIR: terraform
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # OIDC -> Assume AWS role (no long-lived AWS keys)
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::395512255485:role/gha-ecs-terraform-deployer
+          
+          aws-region: ${{ env.AWS_REGION }}
+
+      # Terraform in GitHub Actions (since you don't install it locally)
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Terraform Init
+        working-directory: ${{ env.TF_DIR }}
+        run: terraform init
+
+      - name: Terraform Apply (infra)
+        working-directory: ${{ env.TF_DIR }}
+        run: |
+          terraform apply -auto-approve \
+            -var="aws_region=${AWS_REGION}" \
+            -var="project_name=${PROJECT_NAME}"
+
+      - name: Read Terraform outputs
+        id: tfout
+        working-directory: ${{ env.TF_DIR }}
+        run: |
+          echo "ECR_REPO_URL=$(terraform output -raw ecr_repo_url)" >> $GITHUB_OUTPUT
+          echo "ECS_CLUSTER=$(terraform output -raw ecs_cluster_name)" >> $GITHUB_OUTPUT
+          echo "ECS_SERVICE=$(terraform output -raw ecs_service_name)" >> $GITHUB_OUTPUT
+
+      # Login to ECR
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      # Build & push image (Docker runs on GitHub runner)
+      - name: Build and push Docker image to ECR
+        id: build-image
+        env:
+          ECR_REPO_URL: ${{ steps.tfout.outputs.ECR_REPO_URL }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker build -t "$ECR_REPO_URL:$IMAGE_TAG" .
+          docker push "$ECR_REPO_URL:$IMAGE_TAG"
+          echo "IMAGE_URI=$ECR_REPO_URL:$IMAGE_TAG" >> $GITHUB_OUTPUT
+
+      # Fetch current task definition from ECS, then render new image into it
+      - name: Download current task definition
+        id: taskdef
+        env:
+          ECS_CLUSTER: ${{ steps.tfout.outputs.ECS_CLUSTER }}
+          ECS_SERVICE: ${{ steps.tfout.outputs.ECS_SERVICE }}
+        run: |
+          TASK_DEF_ARN=$(aws ecs describe-services \
+            --cluster "$ECS_CLUSTER" \
+            --services "$ECS_SERVICE" \
+            --query "services[0].taskDefinition" \
+            --output text)
+          aws ecs describe-task-definition \
+            --task-definition "$TASK_DEF_ARN" \
+            --query "taskDefinition" \
+            --output json > task-definition.json
+
+      - name: Render new task definition (replace image)
+        id: render
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        with:
+          task-definition: task-definition.json
+          container-name: app
+          image: ${{ steps.build-image.outputs.IMAGE_URI }}
+
+      - name: Deploy to ECS service
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v2
+        with:
+          task-definition: ${{ steps.render.outputs.task-definition }}
+          service: ${{ steps.tfout.outputs.ECS_SERVICE }}
+          cluster: ${{ steps.tfout.outputs.ECS_CLUSTER }}
+          wait-for-service-stability: true
 
