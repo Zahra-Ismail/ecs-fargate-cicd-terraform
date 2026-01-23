@@ -41,8 +41,8 @@ jobs:
         working-directory: ${{ env.TF_DIR }}
         run: |
           terraform apply -auto-approve \
-            -var="aws_region=${AWS_REGION}" \
-            -var="project_name=${PROJECT_NAME}"
+            -var="aws_region=${eu-north-1}" \
+            -var="project_name=${ecs-fargate-cicd-terraform}"
 
       - name: Read Terraform outputs
         id: tfout
