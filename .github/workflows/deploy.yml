@@ -9,11 +9,12 @@ jobs:
     runs-on: ubuntu-latest
 
     permissions:
-      id-token: write
-      contents: read
+      id-token: write   # Required for requesting the JWT
+      contents: read    # Required for actions/checkout
 
     env:
       AWS_REGION: eu-north-1
+      AWS_ACCOUNT_ID: "395512255485"
       TF_VAR_aws_region: eu-north-1
       TF_VAR_project: ${{ secrets.PROJECT }}
       TF_VAR_tf_state_bucket: ${{ secrets.TF_STATE_BUCKET }}
@@ -21,12 +22,14 @@ jobs:
       TF_VAR_ecr_repo_name: ${{ secrets.ECR_REPO_NAME }}
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout Code
+        uses: actions/checkout@v4
 
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: arn:aws:iam::621072894747:role/ECS_GitHub
+          # Updated to match your correct AWS Account ID
+          role-to-assume: arn:aws:iam::395512255485:role/ECS_GitHub
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Setup Terraform
@@ -50,10 +53,11 @@ jobs:
 
       - name: Build and push Docker image (latest + sha)
         run: |
-          ACCOUNT_ID=621072894747
           REPO=${TF_VAR_ecr_repo_name}
-          IMAGE_LATEST=$ACCOUNT_ID.dkr.ecr.${AWS_REGION}.amazonaws.com/${REPO}:latest
-          IMAGE_SHA=$ACCOUNT_ID.dkr.ecr.${AWS_REGION}.amazonaws.com/${REPO}:${GITHUB_SHA}
+          REGISTRY=${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com
+          
+          IMAGE_LATEST=$REGISTRY/$REPO:latest
+          IMAGE_SHA=$REGISTRY/$REPO:${GITHUB_SHA}
 
           docker build -t ecs-app .
           docker tag ecs-app:latest $IMAGE_LATEST
@@ -66,7 +70,13 @@ jobs:
         run: |
           CLUSTER=${TF_VAR_project}
 
-          SERVICE_ARN=$(aws ecs list-services --cluster "$CLUSTER" --region "${AWS_REGION}" --query "serviceArns[0]" --output text)
+          # Fetch the first service found in the cluster
+          SERVICE_ARN=$(aws ecs list-services --cluster "$CLUSTER" --region "${{ env.AWS_REGION }}" --query "serviceArns[0]" --output text)
+
+          if [ "$SERVICE_ARN" == "None" ]; then
+            echo "No ECS Service found in cluster $CLUSTER"
+            exit 1
+          fi
 
           echo "Detected service ARN: $SERVICE_ARN"
 
@@ -74,4 +84,4 @@ jobs:
             --cluster "$CLUSTER" \
             --service "$SERVICE_ARN" \
             --force-new-deployment \
-            --region "${AWS_REGION}"
+            --region "${{ env.AWS_REGION }}"
