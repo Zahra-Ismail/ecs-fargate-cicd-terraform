@@ -1,4 +1,4 @@
-name: terraform + Build + Deploy (ECS Fargate)
+name: Terraform + Build + Deploy (ECS Fargate)
 
 on:
   push:
@@ -23,19 +23,23 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # Optional: helps you confirm folder name (remove later if you want)
+      - name: List repo files
+        run: ls -la
+
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Setup terraform
+      - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: 1.6.6
 
-      - name: terraform Init
-        working-directory: Terraform
+      - name: Terraform Init
+        working-directory: terraform
         run: |
           test -n "${TF_STATE_BUCKET}" || (echo "TF_STATE_BUCKET missing (GitHub Variable)" && exit 1)
           test -n "${TF_LOCK_TABLE}"  || (echo "TF_LOCK_TABLE missing (GitHub Variable)" && exit 1)
@@ -46,7 +50,7 @@ jobs:
             -backend-config="dynamodb_table=${TF_LOCK_TABLE}" \
             -backend-config="key=ecs-fargate-demo/terraform.tfstate"
 
-      - name: terraform Apply
+      - name: Terraform Apply
         working-directory: terraform
         run: |
           terraform apply -auto-approve \
