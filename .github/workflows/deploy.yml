@@ -26,7 +26,7 @@ jobs:
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: arn:aws:iam::621072894747:role/github-actions-ecs-fargate-role
+          role-to-assume: arn:aws:iam::621072894747:role/ECS_GitHub
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Setup Terraform
@@ -38,7 +38,8 @@ jobs:
           terraform init \
             -backend-config="bucket=${TF_VAR_tf_state_bucket}" \
             -backend-config="region=${AWS_REGION}" \
-            -backend-config="dynamodb_table=${TF_VAR_tf_lock_table}"
+            -backend-config="dynamodb_table=${TF_VAR_tf_lock_table}" \
+            -backend-config="key=ecs-fargate-demo/terraform.tfstate"
 
       - name: Terraform Apply (Provision Infra)
         working-directory: terraform
@@ -47,18 +48,30 @@ jobs:
       - name: Login to Amazon ECR
         uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Build and push Docker image
+      - name: Build and push Docker image (latest + sha)
         run: |
           ACCOUNT_ID=621072894747
-          IMAGE_URI=$ACCOUNT_ID.dkr.ecr.${AWS_REGION}.amazonaws.com/${TF_VAR_ecr_repo_name}:latest
-          docker build -t ecs-app .
-          docker tag ecs-app:latest $IMAGE_URI
-          docker push $IMAGE_URI
+          REPO=${TF_VAR_ecr_repo_name}
+          IMAGE_LATEST=$ACCOUNT_ID.dkr.ecr.${AWS_REGION}.amazonaws.com/${REPO}:latest
+          IMAGE_SHA=$ACCOUNT_ID.dkr.ecr.${AWS_REGION}.amazonaws.com/${REPO}:${GITHUB_SHA}
 
-      - name: Force ECS new deployment
+          docker build -t ecs-app .
+          docker tag ecs-app:latest $IMAGE_LATEST
+          docker tag ecs-app:latest $IMAGE_SHA
+
+          docker push $IMAGE_LATEST
+          docker push $IMAGE_SHA
+
+      - name: Force ECS new deployment (auto-detect service)
         run: |
+          CLUSTER=${TF_VAR_project}
+
+          SERVICE_ARN=$(aws ecs list-services --cluster "$CLUSTER" --region "${AWS_REGION}" --query "serviceArns[0]" --output text)
+
+          echo "Detected service ARN: $SERVICE_ARN"
+
           aws ecs update-service \
-            --cluster ${TF_VAR_project} \
-            --service ${TF_VAR_project}-app \
+            --cluster "$CLUSTER" \
+            --service "$SERVICE_ARN" \
             --force-new-deployment \
-            --region ${AWS_REGION}
+            --region "${AWS_REGION}"
