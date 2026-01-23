@@ -1,39 +1,21 @@
-terraform {
-  required_version = ">= 1.5.0"
-
-  required_providers {
-    aws = {
-      source  = "hashicorp/aws"
-      version = ">= 5.0"
-    }
-  }
-
-  # IMPORTANT: backend cannot use variables.
-  # Provide bucket/region/dynamodb_table via `terraform init -backend-config=...`
-  backend "s3" {
-    key     = "ecs-fargate-demo/terraform.tfstate"
-    encrypt = true
-  }
+resource "aws_ecr_repository" "app" {
+  name                 = var.ecr_repo_name
+  image_tag_mutability = "MUTABLE"
 }
 
-provider "aws" {
-  region = var.aws_region
-}
+resource "aws_ecr_lifecycle_policy" "keep_last_20" {
+  repository = aws_ecr_repository.app.name
 
-########################
-# VARIABLES
-########################
-variable "aws_region" { type = string }
-variable "project"    { type = string }
-
-variable "tf_state_bucket" { type = string }
-variable "tf_lock_table"   { type = string }
-
-variable "ecr_repo_name" { type = string }
-
-########################
-# OUTPUTS
-########################
-output "ecr_repo_url" {
-  value = aws_ecr_repository.app.repository_url
+  policy = jsonencode({
+    rules = [{
+      rulePriority = 1
+      description  = "Keep last 20 images"
+      selection = {
+        tagStatus   = "any"
+        countType   = "imageCountMoreThan"
+        countNumber = 20
+      }
+      action = { type = "expire" }
+    }]
+  })
 }
