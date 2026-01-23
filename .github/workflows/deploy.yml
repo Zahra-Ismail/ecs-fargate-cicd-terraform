@@ -25,7 +25,7 @@ jobs:
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: arn:aws:iam::395512255485:role/gha-ecs-terraform-deployer
+          role-to-assume: arn:aws:iam::395512255485:role/ect_fargate_terraform_deployer
           
           aws-region: ${{ env.AWS_REGION }}
 
@@ -41,8 +41,8 @@ jobs:
         working-directory: ${{ env.TF_DIR }}
         run: |
           terraform apply -auto-approve \
-            -var="aws_region=${eu-north-1}" \
-            -var="project_name=${ecs-fargate-cicd-terraform}"
+            -var="aws_region=${{env.AWS_REGION}}" \
+            -var="project_name=ecs-fargate-cicd-terraform"
 
       - name: Read Terraform outputs
         id: tfout
