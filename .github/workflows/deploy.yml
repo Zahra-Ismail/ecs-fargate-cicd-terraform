@@ -1,7 +1,3 @@
-Final deploy.yml
-
-
-
 name: Build & Deploy to ECS Fargate
 
 on:
