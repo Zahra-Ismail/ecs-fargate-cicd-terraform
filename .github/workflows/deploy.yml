@@ -1,3 +1,7 @@
+Final deploy.yml
+
+
+
 name: Build & Deploy to ECS Fargate
 
 on:
@@ -14,12 +18,9 @@ env:
   PROJECT_NAME: ecs-fargate-cicd-terraform
   ECR_REPOSITORY: ecs-fargate-cicd-terraform
 
+ 
   ECS_CLUSTER: ecs-fargate-cicd-terraform-cluster
   ECS_SERVICE: ecs-fargate-cicd-terraform
-
-  # ✅ Your PUBLIC subnets (for public IP)
-  PUBLIC_SUBNET_1: subnet-0164f734957437b65
-  PUBLIC_SUBNET_2: subnet-06ea0eeeb4128fb22
 
 jobs:
   deploy:
@@ -65,16 +66,7 @@ jobs:
             -var="existing_security_group_id=sg-0afdd074401ffe6ed" \
             -var="existing_ecr_repo_name=${{ env.ECR_REPOSITORY }}"
 
-      # ✅ Enable public IP using your PUBLIC subnets
-      - name: Enable Public IP for ECS tasks (use public subnets)
-        run: |
-          aws ecs update-service \
-            --region "${AWS_REGION}" \
-            --cluster "${ECS_CLUSTER}" \
-            --service "${ECS_SERVICE}" \
-            --network-configuration "awsvpcConfiguration={subnets=[${PUBLIC_SUBNET_1},${PUBLIC_SUBNET_2}],securityGroups=[sg-0afdd074401ffe6ed],assignPublicIp=ENABLED}" \
-            --force-new-deployment
-
+   
       - name: Deploy to existing ECS service
         run: |
           aws ecs update-service \
@@ -88,3 +80,4 @@ jobs:
             --region "${AWS_REGION}" \
             --cluster "${ECS_CLUSTER}" \
             --services "${ECS_SERVICE}"
+
