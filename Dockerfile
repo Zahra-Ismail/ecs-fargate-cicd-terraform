@@ -2,12 +2,12 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# install dependencies
+# Install dependencies
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# copy your flask app folder
-App/app.py
+# Copy the application code (your app.py is inside App/)
+COPY App/ /app/
 
 EXPOSE 8080
 
