@@ -14,6 +14,10 @@ env:
   PROJECT_NAME: ecs-fargate-cicd-terraform
   ECR_REPOSITORY: ecs-fargate-cicd-terraform
 
+ 
+  ECS_CLUSTER: ecs-fargate-cicd-terraform-cluster
+  ECS_SERVICE: ecs-fargate-cicd-terraform
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
@@ -48,13 +52,28 @@ jobs:
         working-directory: terraform
         run: terraform init
 
-      - name: Terraform Apply
+      - name: Terraform Apply (creates new task definition revision)
         working-directory: terraform
         run: |
           terraform apply -auto-approve \
-            -var="github_repo=${{ github.repository }}" \
             -var="container_image=${{ env.IMAGE_URI }}" \
             -var="existing_vpc_id=vpc-01f7999b335c94e65" \
             -var='existing_private_subnet_ids=["subnet-01e277a197a998399","subnet-046d32a91c65f6d3c"]' \
             -var="existing_security_group_id=sg-0afdd074401ffe6ed" \
             -var="existing_ecr_repo_name=${{ env.ECR_REPOSITORY }}"
+
+   
+      - name: Deploy to existing ECS service
+        run: |
+          aws ecs update-service \
+            --region "${AWS_REGION}" \
+            --cluster "${ECS_CLUSTER}" \
+            --service "${ECS_SERVICE}" \
+            --task-definition "${PROJECT_NAME}" \
+            --force-new-deployment
+
+          aws ecs wait services-stable \
+            --region "${AWS_REGION}" \
+            --cluster "${ECS_CLUSTER}" \
+            --services "${ECS_SERVICE}"
+
