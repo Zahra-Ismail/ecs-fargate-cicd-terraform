@@ -75,5 +75,4 @@ jobs:
           aws ecs wait services-stable \
             --region "${AWS_REGION}" \
             --cluster "${ECS_CLUSTER}" \
-            --services "${ECS_SERVICE}"
-
+            --services "${ECS_SERVICE}"  
