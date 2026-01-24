@@ -46,7 +46,6 @@ variable "existing_vpc_id" {
   default     = "vpc-01f7999b335c94e65"
 }
 
-# ✅ Use PUBLIC subnets when you want public IP on tasks
 variable "existing_public_subnet_ids" {
   description = "Existing public subnet IDs (2 subnets in 2 AZs)"
   type        = list(string)
@@ -160,4 +159,8 @@ output "ecs_cluster_name" {
 
 output "public_subnet_ids_used" {
   value = var.existing_public_subnet_ids
+}
+
+output "task_definition_arn" {
+  value = aws_ecs_task_definition.app.arn
 }
