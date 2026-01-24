@@ -1,16 +1,10 @@
-from flask import Flask, jsonify
+from flask import Flask, render_template
 
-app = Flask(__name__)
+app = Flask(__name__, template_folder="webui", static_folder="static")
 
-@app.get("/")
+@app.route("/")
 def home():
-    return "Hello from Flask on ECS Fargate!\n"
-
-@app.get("/health")
-def health():
-    return jsonify(status="ok"), 200
+    return render_template("index.html")
 
 if __name__ == "__main__":
-    # Important: listen on 0.0.0.0 and port 8080
-    app.run(host="0.0.0.0", port=8080)
-
+    app.run(host="0.0.0.0", port=8080, debug=True)
