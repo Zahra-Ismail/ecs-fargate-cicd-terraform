@@ -13,7 +13,7 @@ terraform {
 }
 
 provider "aws" {
-  region = "ap-south-1"
+  region = "eu-north-1"
 }
 
 ################################
@@ -28,7 +28,7 @@ variable "github_repo" {
 }
 
 variable "container_image" {
-  description = "ECR image URI with tag"
+  description = "395512255485.dkr.ecr.eu-north-1.amazonaws.com/ecs-fargate-cicd-terraform"
 }
 
 variable "container_port" {
@@ -45,7 +45,7 @@ module "vpc" {
   name = "${var.project_name}-vpc"
   cidr = "10.0.0.0/16"
 
-  azs             = ["ap-south-1a", "ap-south-1b"]
+  azs             = ["eu-north-1a", "eu-north-1b"]
   public_subnets  = ["10.0.1.0/24", "10.0.2.0/24"]
   private_subnets = ["10.0.11.0/24", "10.0.12.0/24"]
 
