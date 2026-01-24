@@ -1,0 +1,63 @@
+name: Build & Deploy to ECS Fargate
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  id-token: write   # Required for OIDC
+  contents: read
+
+env:
+  AWS_REGION: ap-south-1
+  PROJECT_NAME: ecs-fargate-demo
+  ECR_REPOSITORY: ecs-fargate-demo
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+    # 1️⃣ Checkout code
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    # 2️⃣ Configure AWS credentials using OIDC
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        role-to-assume: arn:aws:iam::<YOUR_AWS_ACCOUNT_ID>:role/ecs-fargate-demo-github-role
+        aws-region: ${{ env.AWS_REGION }}
+
+    # 3️⃣ Login to Amazon ECR
+    - name: Login to Amazon ECR
+      id: login-ecr
+      uses: aws-actions/amazon-ecr-login@v2
+
+    # 4️⃣ Build and push Docker image
+    - name: Build and push Docker image
+      env:
+        ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        IMAGE_TAG: ${{ github.sha }}
+      run: |
+        docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+        docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+        echo "IMAGE_URI=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_ENV
+
+    # 5️⃣ Setup Terraform
+    - name: Setup Terraform
+      uses: hashicorp/setup-terraform@v3
+
+    # 6️⃣ Terraform Init
+    - name: Terraform Init
+      working-directory: terraform
+      run: terraform init
+
+    # 7️⃣ Terraform Apply (Deploy to ECS)
+    - name: Terraform Apply
+      working-directory: terraform
+      run: |
+        terraform apply -auto-approve \
+          -var="github_repo=${{ github.repository }}" \
+          -var="container_image=${{ env.IMAGE_URI }}"
