@@ -20,11 +20,11 @@ provider "aws" {
 # Variables
 ################################
 variable "project_name" {
-  default = "ecs-fargate-demo"
+  default = "ecs-fargate-cicd-terraform"
 }
 
 variable "github_repo" {
-  description = "GitHub repo in format owner/repo"
+  description = "https://github.com/Zahra-Ismail/ecs-fargate-cicd-terraform"
 }
 
 variable "container_image" {
