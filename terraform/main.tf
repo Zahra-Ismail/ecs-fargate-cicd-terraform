@@ -71,7 +71,7 @@ variable "existing_ecr_repo_name" {
 }
 
 ################################
-# Use EXISTING VPC / Subnets / SG / ECR (DATA SOURCES)
+# Use EXISTING VPC / SG / ECR (DATA SOURCES)
 ################################
 data "aws_vpc" "existing" {
   id = var.existing_vpc_id
@@ -143,26 +143,6 @@ resource "aws_ecs_task_definition" "app" {
       }
     }
   ])
-}
-
-################################
-# ECS Service (create)
-################################
-resource "aws_ecs_service" "app" {
-  name            = var.project_name
-  cluster         = module.ecs.cluster_id
-  task_definition = aws_ecs_task_definition.app.arn
-  launch_type     = "FARGATE"
-  desired_count   = 1
-
-  network_configuration {
-    subnets          = var.existing_private_subnet_ids
-    security_groups  = [data.aws_security_group.ecs.id]
-    assign_public_ip = false
-  }
-
-  deployment_minimum_healthy_percent = 50
-  deployment_maximum_percent         = 200
 }
 
 ################################
