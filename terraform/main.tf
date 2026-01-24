@@ -1,4 +1,3 @@
-
 ################################
 # Terraform & Provider
 ################################
@@ -31,7 +30,6 @@ variable "github_repo" {
   default     = "Zahra-Ismail/ecs-fargate-cicd-terraform"
 }
 
-# ✅ Must be passed from GitHub Actions WITH TAG (example :<sha>)
 variable "container_image" {
   description = "Full ECR image URI with tag"
   type        = string
@@ -42,20 +40,19 @@ variable "container_port" {
   default = 8080
 }
 
-# ✅ Existing resources created in AWS Console
 variable "existing_vpc_id" {
   description = "Existing VPC ID"
   type        = string
   default     = "vpc-01f7999b335c94e65"
 }
 
-# ✅ BOTH private subnets (1a + 1b)
-variable "existing_private_subnet_ids" {
-  description = "Existing private subnet IDs (2 subnets in 2 AZs)"
+# ✅ Use PUBLIC subnets when you want public IP on tasks
+variable "existing_public_subnet_ids" {
+  description = "Existing public subnet IDs (2 subnets in 2 AZs)"
   type        = list(string)
   default     = [
-    "subnet-01e277a197a998399",
-    "subnet-046d32a91c65f6d3c"
+    "subnet-0164f734957437b65",
+    "subnet-06ea0eeeb4128fb22"
   ]
 }
 
@@ -72,7 +69,7 @@ variable "existing_ecr_repo_name" {
 }
 
 ################################
-# Use EXISTING VPC / SG / ECR (DATA SOURCES)
+# Use EXISTING VPC / SG / Subnets / ECR (DATA SOURCES)
 ################################
 data "aws_vpc" "existing" {
   id = var.existing_vpc_id
@@ -86,9 +83,13 @@ data "aws_ecr_repository" "app" {
   name = var.existing_ecr_repo_name
 }
 
+data "aws_subnet" "public" {
+  for_each = toset(var.existing_public_subnet_ids)
+  id       = each.value
+}
+
 ################################
 # ECS Cluster (module)
-# ✅ Prevent module creating cluster log group (yours already exists)
 ################################
 module "ecs" {
   source  = "terraform-aws-modules/ecs/aws"
@@ -155,4 +156,8 @@ output "ecr_repo_url" {
 
 output "ecs_cluster_name" {
   value = module.ecs.cluster_name
+}
+
+output "public_subnet_ids_used" {
+  value = var.existing_public_subnet_ids
 }
