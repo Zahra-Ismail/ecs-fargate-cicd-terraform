@@ -14,9 +14,12 @@ env:
   PROJECT_NAME: ecs-fargate-cicd-terraform
   ECR_REPOSITORY: ecs-fargate-cicd-terraform
 
- 
   ECS_CLUSTER: ecs-fargate-cicd-terraform-cluster
   ECS_SERVICE: ecs-fargate-cicd-terraform
+
+  # ✅ Public subnets for public IP
+  PUBLIC_SUBNET_IDS: subnet-0164f734957437b65,subnet-06ea0eeeb4128fb22
+  ECS_SG_ID: sg-0afdd074401ffe6ed
 
 jobs:
   deploy:
@@ -41,9 +44,9 @@ jobs:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
           IMAGE_TAG: ${{ github.sha }}
         run: |
-          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
-          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
-          echo "IMAGE_URI=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_ENV
+          docker build -t $ECR_REGISTRY/${ECR_REPOSITORY}:$IMAGE_TAG .
+          docker push $ECR_REGISTRY/${ECR_REPOSITORY}:$IMAGE_TAG
+          echo "IMAGE_URI=$ECR_REGISTRY/${ECR_REPOSITORY}:$IMAGE_TAG" >> $GITHUB_ENV
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
@@ -52,18 +55,23 @@ jobs:
         working-directory: terraform
         run: terraform init
 
-      - name: Terraform Apply (creates new task definition revision)
+      - name: Terraform Apply (register new task definition revision)
         working-directory: terraform
         run: |
           terraform apply -auto-approve \
-            -var="container_image=${{ env.IMAGE_URI }}" \
-            -var="existing_vpc_id=vpc-01f7999b335c94e65" \
-            -var='existing_private_subnet_ids=["subnet-01e277a197a998399","subnet-046d32a91c65f6d3c"]' \
-            -var="existing_security_group_id=sg-0afdd074401ffe6ed" \
-            -var="existing_ecr_repo_name=${{ env.ECR_REPOSITORY }}"
+            -var="container_image=${{ env.IMAGE_URI }}"
 
-   
-      - name: Deploy to existing ECS service
+      # ✅ CRITICAL: move service to PUBLIC subnets + enable public IP (so it can reach ECR)
+      - name: Update ECS service networking (public subnets + public IP)
+        run: |
+          aws ecs update-service \
+            --region "${AWS_REGION}" \
+            --cluster "${ECS_CLUSTER}" \
+            --service "${ECS_SERVICE}" \
+            --network-configuration "awsvpcConfiguration={subnets=[${PUBLIC_SUBNET_IDS}],securityGroups=[${ECS_SG_ID}],assignPublicIp=ENABLED}" \
+            --force-new-deployment
+
+      - name: Deploy latest task definition and wait
         run: |
           aws ecs update-service \
             --region "${AWS_REGION}" \
@@ -75,4 +83,4 @@ jobs:
           aws ecs wait services-stable \
             --region "${AWS_REGION}" \
             --cluster "${ECS_CLUSTER}" \
-            --services "${ECS_SERVICE}"  
+            --services "${ECS_SERVICE}"
