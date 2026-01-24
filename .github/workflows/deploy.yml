@@ -27,7 +27,7 @@ jobs:
     - name: Configure AWS credentials
       uses: aws-actions/configure-aws-credentials@v4
       with:
-        role-to-assume: arn:aws:iam::395512255485:role/ecs-fargate-terraform-github-role
+        role-to-assume: arn:aws:iam::395512255485:role/GitHub_ECS
         aws-region: ${{ env.AWS_REGION }}
 
     # 3️⃣ Login to Amazon ECR
