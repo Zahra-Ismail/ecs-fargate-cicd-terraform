@@ -20,50 +20,58 @@ provider "aws" {
 # Variables
 ################################
 variable "project_name" {
+  type    = string
   default = "ecs-fargate-cicd-terraform"
 }
 
 variable "github_repo" {
   description = "GitHub repo in format owner/repo"
+  type        = string
   default     = "Zahra-Ismail/ecs-fargate-cicd-terraform"
 }
 
+# Passed from GitHub Actions
 variable "container_image" {
-  description = "395512255485.dkr.ecr.eu-north-1.amazonaws.com/ecs-fargate-cicd-terraform"
+  description = "Full ECR image URI with tag"
+  type        = string
 }
 
 variable "container_port" {
+  type    = number
   default = 8080
 }
 
+################################
+# Existing AWS Infrastructure
+################################
 variable "existing_vpc_id" {
-  description = "vpc-01f7999b335c94e65"
+  type    = string
+  default = "vpc-01f7999b335c94e65"
 }
 
 variable "existing_private_subnet_ids" {
-  description = "subnet-046d32a91c65f6d3c"
-  type        = list(string)
+  type = list(string)
+  default = [
+    "subnet-01e277a197a998399",
+    "subnet-046d32a91c65f6d3c"
+  ]
 }
 
 variable "existing_security_group_id" {
-  description = "sg-0afdd074401ffe6ed"
+  type    = string
+  default = "sg-0afdd074401ffe6ed"
 }
 
 variable "existing_ecr_repo_name" {
-  description = "ecs-fargate-cicd-terraform"
-  default     = "ecs-fargate-cicd-terraform"
+  type    = string
+  default = "ecs-fargate-cicd-terraform"
 }
 
 ################################
-# Use EXISTING VPC / Subnets / SG / ECR (DATA SOURCES)
+# Data Sources (Existing Resources)
 ################################
 data "aws_vpc" "existing" {
   id = var.existing_vpc_id
-}
-
-data "aws_subnet" "private" {
-  for_each = toset(var.existing_private_subnet_ids)
-  id       = each.value
 }
 
 data "aws_security_group" "ecs" {
@@ -75,7 +83,7 @@ data "aws_ecr_repository" "app" {
 }
 
 ################################
-# ECS Cluster (create via module OR switch to existing later)
+# ECS Cluster
 ################################
 module "ecs" {
   source  = "terraform-aws-modules/ecs/aws"
@@ -85,7 +93,7 @@ module "ecs" {
 }
 
 ################################
-# ECS Task Execution Role (create)
+# ECS Task Execution Role
 ################################
 resource "aws_iam_role" "ecs_task_execution" {
   name = "${var.project_name}-task-execution"
@@ -106,7 +114,7 @@ resource "aws_iam_role_policy_attachment" "ecs_execution_policy" {
 }
 
 ################################
-# CloudWatch Logs (create)
+# CloudWatch Logs
 ################################
 resource "aws_cloudwatch_log_group" "ecs" {
   name              = "/ecs/${var.project_name}"
@@ -114,7 +122,7 @@ resource "aws_cloudwatch_log_group" "ecs" {
 }
 
 ################################
-# ECS Task Definition (create/update)
+# ECS Task Definition
 ################################
 resource "aws_ecs_task_definition" "app" {
   family                   = var.project_name
@@ -148,7 +156,7 @@ resource "aws_ecs_task_definition" "app" {
 }
 
 ################################
-# ECS Service (create)
+# ECS Service
 ################################
 resource "aws_ecs_service" "app" {
   name            = var.project_name
@@ -168,7 +176,7 @@ resource "aws_ecs_service" "app" {
 }
 
 ################################
-# Outputs (use existing ECR)
+# Outputs
 ################################
 output "ecr_repo_url" {
   value = data.aws_ecr_repository.app.repository_url
