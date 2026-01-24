@@ -17,7 +17,7 @@ env:
   ECS_CLUSTER: ecs-fargate-cicd-terraform-cluster
   ECS_SERVICE: ecs-fargate-cicd-terraform
 
-  # ✅ Public subnets for public IP
+  # Public subnets + SG for public IP tasks
   PUBLIC_SUBNET_IDS: subnet-0164f734957437b65,subnet-06ea0eeeb4128fb22
   ECS_SG_ID: sg-0afdd074401ffe6ed
 
@@ -61,24 +61,32 @@ jobs:
           terraform apply -auto-approve \
             -var="container_image=${{ env.IMAGE_URI }}"
 
-      # ✅ CRITICAL: move service to PUBLIC subnets + enable public IP (so it can reach ECR)
-      - name: Update ECS service networking (public subnets + public IP)
+      # Get the exact new task definition ARN from Terraform output
+      - name: Read latest task definition ARN
+        working-directory: terraform
         run: |
+          echo "TASK_DEF_ARN=$(terraform output -raw task_definition_arn)" >> $GITHUB_ENV
+
+      # Update networking + task definition in ONE call (most reliable)
+      - name: Deploy to ECS (public subnets + public IP) and wait
+        run: |
+          echo "Deploying task definition: ${TASK_DEF_ARN}"
+
           aws ecs update-service \
             --region "${AWS_REGION}" \
             --cluster "${ECS_CLUSTER}" \
             --service "${ECS_SERVICE}" \
+            --task-definition "${TASK_DEF_ARN}" \
             --network-configuration "awsvpcConfiguration={subnets=[${PUBLIC_SUBNET_IDS}],securityGroups=[${ECS_SG_ID}],assignPublicIp=ENABLED}" \
             --force-new-deployment
 
-      - name: Deploy latest task definition and wait
-        run: |
-          aws ecs update-service \
+          # Print latest service events (helps debugging if wait fails)
+          aws ecs describe-services \
             --region "${AWS_REGION}" \
             --cluster "${ECS_CLUSTER}" \
-            --service "${ECS_SERVICE}" \
-            --task-definition "${PROJECT_NAME}" \
-            --force-new-deployment
+            --services "${ECS_SERVICE}" \
+            --query "services[0].events[0:5].message" \
+            --output text
 
           aws ecs wait services-stable \
             --region "${AWS_REGION}" \
