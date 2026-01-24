@@ -11,8 +11,8 @@ permissions:
 
 env:
   AWS_REGION: ap-south-1
-  PROJECT_NAME: ecs-fargate-demo
-  ECR_REPOSITORY: ecs-fargate-demo
+  PROJECT_NAME: ecs-fargate-cicd-terraform
+  ECR_REPOSITORY: ecs-fargate-cicd-terraform
 
 jobs:
   deploy:
@@ -27,7 +27,7 @@ jobs:
     - name: Configure AWS credentials
       uses: aws-actions/configure-aws-credentials@v4
       with:
-        role-to-assume: arn:aws:iam::<YOUR_AWS_ACCOUNT_ID>:role/ecs-fargate-demo-github-role
+        role-to-assume: arn:aws:iam::395512255485:role/ecs-fargate-terraform-github-role
         aws-region: ${{ env.AWS_REGION }}
 
     # 3️⃣ Login to Amazon ECR
