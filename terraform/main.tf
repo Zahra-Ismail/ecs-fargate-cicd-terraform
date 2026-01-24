@@ -24,7 +24,8 @@ variable "project_name" {
 }
 
 variable "github_repo" {
-  description = "https://github.com/Zahra-Ismail/ecs-fargate-cicd-terraform"
+  description = "GitHub repo in format owner/repo"
+  default     = "Zahra-Ismail/ecs-fargate-cicd-terraform"
 }
 
 variable "container_image" {
@@ -35,94 +36,46 @@ variable "container_port" {
   default = 8080
 }
 
-################################
-# VPC
-################################
-module "vpc" {
-  source  = "terraform-aws-modules/vpc/aws"
-  version = "5.1.2"
+variable "existing_vpc_id" {
+  description = "vpc-01f7999b335c94e65"
+}
 
-  name = "${var.project_name}-vpc"
-  cidr = "10.0.0.0/16"
+variable "existing_private_subnet_ids" {
+  description = "subnet-046d32a91c65f6d3c"
+  type        = list(string)
+}
 
-  azs             = ["eu-north-1a", "eu-north-1b"]
-  public_subnets  = ["10.0.1.0/24", "10.0.2.0/24"]
-  private_subnets = ["10.0.11.0/24", "10.0.12.0/24"]
+variable "existing_security_group_id" {
+  description = "sg-0afdd074401ffe6ed"
+}
 
-  enable_nat_gateway = true
-  single_nat_gateway = true
+variable "existing_ecr_repo_name" {
+  description = "ecs-fargate-cicd-terraform"
+  default     = "ecs-fargate-cicd-terraform"
 }
 
 ################################
-# Security Group
+# Use EXISTING VPC / Subnets / SG / ECR (DATA SOURCES)
 ################################
-resource "aws_security_group" "ecs" {
-  name   = "${var.project_name}-sg"
-  vpc_id = module.vpc.vpc_id
+data "aws_vpc" "existing" {
+  id = var.existing_vpc_id
+}
 
-  ingress {
-    from_port   = var.container_port
-    to_port     = var.container_port
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
+data "aws_subnet" "private" {
+  for_each = toset(var.existing_private_subnet_ids)
+  id       = each.value
+}
 
-  egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
+data "aws_security_group" "ecs" {
+  id = var.existing_security_group_id
+}
+
+data "aws_ecr_repository" "app" {
+  name = var.existing_ecr_repo_name
 }
 
 ################################
-# ECR
-################################
-resource "aws_ecr_repository" "app" {
-  name = var.project_name
-
-  image_scanning_configuration {
-    scan_on_push = true
-  }
-}
-
-################################
-# GitHub Actions OIDC
-################################
-resource "aws_iam_openid_connect_provider" "github" {
-  url = "https://token.actions.githubusercontent.com"
-
-  client_id_list  = ["sts.amazonaws.com"]
-  thumbprint_list = ["6938fd4d98bab03faadb97b34396831e3780aea1"]
-}
-
-resource "aws_iam_role" "github_actions" {
-  name = "${var.project_name}-github-role"
-
-  assume_role_policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [{
-      Effect = "Allow"
-      Principal = {
-        Federated = aws_iam_openid_connect_provider.github.arn
-      }
-      Action = "sts:AssumeRoleWithWebIdentity"
-      Condition = {
-        StringLike = {
-          "token.actions.githubusercontent.com:sub" = "repo:${var.github_repo}:*"
-        }
-      }
-    }]
-  })
-}
-
-resource "aws_iam_role_policy_attachment" "github_admin" {
-  role       = aws_iam_role.github_actions.name
-  policy_arn = "arn:aws:iam::aws:policy/AdministratorAccess"
-}
-
-################################
-# ECS Cluster (Public Module)
+# ECS Cluster (create via module OR switch to existing later)
 ################################
 module "ecs" {
   source  = "terraform-aws-modules/ecs/aws"
@@ -132,7 +85,7 @@ module "ecs" {
 }
 
 ################################
-# ECS Task Execution Role
+# ECS Task Execution Role (create)
 ################################
 resource "aws_iam_role" "ecs_task_execution" {
   name = "${var.project_name}-task-execution"
@@ -153,7 +106,7 @@ resource "aws_iam_role_policy_attachment" "ecs_execution_policy" {
 }
 
 ################################
-# CloudWatch Logs
+# CloudWatch Logs (create)
 ################################
 resource "aws_cloudwatch_log_group" "ecs" {
   name              = "/ecs/${var.project_name}"
@@ -161,7 +114,7 @@ resource "aws_cloudwatch_log_group" "ecs" {
 }
 
 ################################
-# ECS Task Definition
+# ECS Task Definition (create/update)
 ################################
 resource "aws_ecs_task_definition" "app" {
   family                   = var.project_name
@@ -173,8 +126,8 @@ resource "aws_ecs_task_definition" "app" {
 
   container_definitions = jsonencode([
     {
-      name  = "app"
-      image = var.container_image
+      name      = "app"
+      image     = var.container_image
       essential = true
 
       portMappings = [{
@@ -186,7 +139,7 @@ resource "aws_ecs_task_definition" "app" {
         logDriver = "awslogs"
         options = {
           awslogs-group         = aws_cloudwatch_log_group.ecs.name
-          awslogs-region        = "ap-south-1"
+          awslogs-region        = "eu-north-1"
           awslogs-stream-prefix = "ecs"
         }
       }
@@ -195,7 +148,7 @@ resource "aws_ecs_task_definition" "app" {
 }
 
 ################################
-# ECS Service
+# ECS Service (create)
 ################################
 resource "aws_ecs_service" "app" {
   name            = var.project_name
@@ -205,8 +158,8 @@ resource "aws_ecs_service" "app" {
   desired_count   = 1
 
   network_configuration {
-    subnets         = module.vpc.private_subnets
-    security_groups = [aws_security_group.ecs.id]
+    subnets          = var.existing_private_subnet_ids
+    security_groups  = [data.aws_security_group.ecs.id]
     assign_public_ip = false
   }
 
@@ -215,10 +168,10 @@ resource "aws_ecs_service" "app" {
 }
 
 ################################
-# Outputs
+# Outputs (use existing ECR)
 ################################
 output "ecr_repo_url" {
-  value = aws_ecr_repository.app.repository_url
+  value = data.aws_ecr_repository.app.repository_url
 }
 
 output "ecs_cluster_name" {
