@@ -10,7 +10,7 @@ permissions:
   contents: read
 
 env:
-  AWS_REGION: ap-south-1
+  AWS_REGION: eu-north-1
   PROJECT_NAME: ecs-fargate-cicd-terraform
   ECR_REPOSITORY: ecs-fargate-cicd-terraform
 
