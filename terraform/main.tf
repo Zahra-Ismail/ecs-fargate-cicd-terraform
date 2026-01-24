@@ -30,7 +30,7 @@ variable "github_repo" {
   default     = "Zahra-Ismail/ecs-fargate-cicd-terraform"
 }
 
-# Passed from GitHub Actions
+# ✅ Must be passed from GitHub Actions WITH TAG (example :<sha>)
 variable "container_image" {
   description = "Full ECR image URI with tag"
   type        = string
@@ -41,34 +41,37 @@ variable "container_port" {
   default = 8080
 }
 
-################################
-# Existing AWS Infrastructure
-################################
+# ✅ Existing resources created in AWS Console
 variable "existing_vpc_id" {
-  type    = string
-  default = "vpc-01f7999b335c94e65"
+  description = "Existing VPC ID"
+  type        = string
+  default     = "vpc-01f7999b335c94e65"
 }
 
+# ✅ BOTH private subnets (1a + 1b)
 variable "existing_private_subnet_ids" {
-  type = list(string)
-  default = [
+  description = "Existing private subnet IDs (2 subnets in 2 AZs)"
+  type        = list(string)
+  default     = [
     "subnet-01e277a197a998399",
     "subnet-046d32a91c65f6d3c"
   ]
 }
 
 variable "existing_security_group_id" {
-  type    = string
-  default = "sg-0afdd074401ffe6ed"
+  description = "Existing security group ID for ECS tasks"
+  type        = string
+  default     = "sg-0afdd074401ffe6ed"
 }
 
 variable "existing_ecr_repo_name" {
-  type    = string
-  default = "ecs-fargate-cicd-terraform"
+  description = "Existing ECR repository name"
+  type        = string
+  default     = "ecs-fargate-cicd-terraform"
 }
 
 ################################
-# Data Sources (Existing Resources)
+# Use EXISTING VPC / Subnets / SG / ECR (DATA SOURCES)
 ################################
 data "aws_vpc" "existing" {
   id = var.existing_vpc_id
@@ -83,46 +86,33 @@ data "aws_ecr_repository" "app" {
 }
 
 ################################
-# ECS Cluster
+# ECS Cluster (module)
+# ✅ Prevent module creating cluster log group (yours already exists)
 ################################
 module "ecs" {
   source  = "terraform-aws-modules/ecs/aws"
   version = "5.11.4"
 
-  cluster_name = "${var.project_name}-cluster"
+  cluster_name                = "${var.project_name}-cluster"
+  create_cloudwatch_log_group = false
 }
 
 ################################
-# ECS Task Execution Role
+# Use EXISTING ECS Task Execution Role (already exists)
 ################################
-resource "aws_iam_role" "ecs_task_execution" {
+data "aws_iam_role" "ecs_task_execution" {
   name = "${var.project_name}-task-execution"
-
-  assume_role_policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [{
-      Effect = "Allow"
-      Principal = { Service = "ecs-tasks.amazonaws.com" }
-      Action = "sts:AssumeRole"
-    }]
-  })
-}
-
-resource "aws_iam_role_policy_attachment" "ecs_execution_policy" {
-  role       = aws_iam_role.ecs_task_execution.name
-  policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
 }
 
 ################################
-# CloudWatch Logs
+# Use EXISTING CloudWatch Log Group (already exists)
 ################################
-resource "aws_cloudwatch_log_group" "ecs" {
-  name              = "/ecs/${var.project_name}"
-  retention_in_days = 7
+data "aws_cloudwatch_log_group" "ecs" {
+  name = "/ecs/${var.project_name}"
 }
 
 ################################
-# ECS Task Definition
+# ECS Task Definition (create/update)
 ################################
 resource "aws_ecs_task_definition" "app" {
   family                   = var.project_name
@@ -130,7 +120,7 @@ resource "aws_ecs_task_definition" "app" {
   network_mode             = "awsvpc"
   cpu                      = 256
   memory                   = 512
-  execution_role_arn       = aws_iam_role.ecs_task_execution.arn
+  execution_role_arn       = data.aws_iam_role.ecs_task_execution.arn
 
   container_definitions = jsonencode([
     {
@@ -146,7 +136,7 @@ resource "aws_ecs_task_definition" "app" {
       logConfiguration = {
         logDriver = "awslogs"
         options = {
-          awslogs-group         = aws_cloudwatch_log_group.ecs.name
+          awslogs-group         = data.aws_cloudwatch_log_group.ecs.name
           awslogs-region        = "eu-north-1"
           awslogs-stream-prefix = "ecs"
         }
@@ -156,7 +146,7 @@ resource "aws_ecs_task_definition" "app" {
 }
 
 ################################
-# ECS Service
+# ECS Service (create)
 ################################
 resource "aws_ecs_service" "app" {
   name            = var.project_name
