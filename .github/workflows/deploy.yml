@@ -17,9 +17,9 @@ env:
   ECS_CLUSTER: ecs-fargate-cicd-terraform-cluster
   ECS_SERVICE: ecs-fargate-cicd-terraform
 
-  # ✅ Your PUBLIC subnets (for public IP)
   PUBLIC_SUBNET_1: subnet-0164f734957437b65
   PUBLIC_SUBNET_2: subnet-06ea0eeeb4128fb22
+  ECS_SG: sg-0afdd074401ffe6ed
 
 jobs:
   deploy:
@@ -62,29 +62,62 @@ jobs:
             -var="container_image=${{ env.IMAGE_URI }}" \
             -var="existing_vpc_id=vpc-01f7999b335c94e65" \
             -var='existing_private_subnet_ids=["subnet-01e277a197a998399","subnet-046d32a91c65f6d3c"]' \
-            -var="existing_security_group_id=sg-0afdd074401ffe6ed" \
+            -var="existing_security_group_id=${{ env.ECS_SG }}" \
             -var="existing_ecr_repo_name=${{ env.ECR_REPOSITORY }}"
 
-      # ✅ Enable public IP using your PUBLIC subnets
-      - name: Enable Public IP for ECS tasks (use public subnets)
+      - name: Read new task definition ARN from Terraform
+        run: |
+          echo "NEW_TD_ARN=$(cd terraform && terraform output -raw task_definition_arn)" >> $GITHUB_ENV
+          echo "New task definition: $NEW_TD_ARN"
+
+      # ✅ Single update: networking + public IP + new task definition
+      - name: Deploy to ECS service (public IP + new task def)
         run: |
           aws ecs update-service \
             --region "${AWS_REGION}" \
             --cluster "${ECS_CLUSTER}" \
             --service "${ECS_SERVICE}" \
-            --network-configuration "awsvpcConfiguration={subnets=[${PUBLIC_SUBNET_1},${PUBLIC_SUBNET_2}],securityGroups=[sg-0afdd074401ffe6ed],assignPublicIp=ENABLED}" \
+            --task-definition "${NEW_TD_ARN}" \
+            --network-configuration "awsvpcConfiguration={subnets=[${PUBLIC_SUBNET_1},${PUBLIC_SUBNET_2}],securityGroups=[${ECS_SG}],assignPublicIp=ENABLED}" \
             --force-new-deployment
 
-      - name: Deploy to existing ECS service
+      - name: Wait for ECS service stability
         run: |
-          aws ecs update-service \
-            --region "${AWS_REGION}" \
-            --cluster "${ECS_CLUSTER}" \
-            --service "${ECS_SERVICE}" \
-            --task-definition "${PROJECT_NAME}" \
-            --force-new-deployment
-
           aws ecs wait services-stable \
             --region "${AWS_REGION}" \
             --cluster "${ECS_CLUSTER}" \
-            --services "${ECS_SERVICE}"
+            --services "${ECS_SERVICE}" \
+            --max-attempts 80 \
+            --delay 15
+
+      # ✅ If anything fails, show the real reason (events + task stop reasons)
+      - name: Debug ECS (on failure)
+        if: failure()
+        run: |
+          echo "---- Service events ----"
+          aws ecs describe-services \
+            --region "${AWS_REGION}" \
+            --cluster "${ECS_CLUSTER}" \
+            --services "${ECS_SERVICE}" \
+            --query "services[0].events[0:15]" \
+            --output table
+
+          echo "---- Recent tasks ----"
+          TASKS=$(aws ecs list-tasks \
+            --region "${AWS_REGION}" \
+            --cluster "${ECS_CLUSTER}" \
+            --service-name "${ECS_SERVICE}" \
+            --query "taskArns[0:5]" \
+            --output text)
+
+          echo "Tasks: $TASKS"
+
+          if [ -n "$TASKS" ]; then
+            echo "---- Task details ----"
+            aws ecs describe-tasks \
+              --region "${AWS_REGION}" \
+              --cluster "${ECS_CLUSTER}" \
+              --tasks $TASKS \
+              --query "tasks[].{lastStatus:lastStatus,desiredStatus:desiredStatus,stoppedReason:stoppedReason,containers:containers[].{name:name,lastStatus:lastStatus,exitCode:exitCode,reason:reason}}" \
+              --output json
+          fi
