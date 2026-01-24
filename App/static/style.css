@@ -1,0 +1,152 @@
+:root {
+    --bg-gradient: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+    --ipad-bezel: #111;
+    --ipad-body: #333;
+}
+
+body {
+    margin: 0;
+    padding: 0;
+    width: 100vw;
+    height: 100vh;
+    background: var(--bg-gradient);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    overflow: hidden;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+}
+
+.scene {
+    width: 600px;
+    height: 800px;
+    perspective: 1500px;
+    /* Essential for 3D effect */
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+.ipad-container {
+    position: relative;
+    width: 460px;
+    /* Approx iPad ratio */
+    height: 640px;
+    transform-style: preserve-3d;
+    animation: wakeUp 2.5s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+    transform-origin: bottom center;
+    /* Pivot from bottom */
+}
+
+/* The iPad Device */
+.ipad {
+    width: 100%;
+    height: 100%;
+    background-color: var(--ipad-bezel);
+    border-radius: 30px;
+    padding: 20px 15px;
+    /* Bezel thickness */
+    box-shadow:
+        inset 0 0 10px rgba(255, 255, 255, 0.2),
+        0 0 5px rgba(0, 0, 0, 0.5),
+        2px 2px 0 #222,
+        /* Fake depth/side */
+        4px 4px 0 #222,
+        6px 6px 0 #222;
+    position: relative;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    box-sizing: border-box;
+}
+
+/* Screen */
+.screen-content {
+    width: 100%;
+    height: 100%;
+    background: #fff;
+    border-radius: 4px;
+    overflow: hidden;
+    color: #333;
+    position: relative;
+    box-shadow: inset 0 0 20px rgba(0, 0, 0, 0.1);
+}
+
+/* Hardware Details */
+.camera {
+    position: absolute;
+    top: 8px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 8px;
+    height: 8px;
+    background: #333;
+    border-radius: 50%;
+    border: 1px solid #444;
+}
+
+.home-button {
+    position: absolute;
+    bottom: 5px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 12px;
+    height: 12px;
+    border: 1px solid #555;
+    border-radius: 50%;
+}
+
+/* Floor Shadow */
+.shadow {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    width: 100%;
+    height: 50px;
+    background: radial-gradient(ellipse at center, rgba(0, 0, 0, 0.4) 0%, transparent 60%);
+    transform: rotateX(90deg) translateZ(0px);
+    /* Flat on the floor */
+    transform-origin: top center;
+    animation: shadowAnim 2.5s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+    opacity: 0;
+}
+
+/* Animation Keyframes */
+@keyframes wakeUp {
+    0% {
+        transform: rotateX(85deg) translateZ(-100px) scale(0.9);
+        opacity: 0;
+    }
+
+    100% {
+        transform: rotateX(0deg) translateZ(0) scale(1);
+        opacity: 1;
+    }
+}
+
+@keyframes shadowAnim {
+    0% {
+        opacity: 0.1;
+        transform: rotateX(90deg) scale(0.8);
+    }
+
+    100% {
+        opacity: 0.6;
+        transform: rotateX(90deg) scale(1);
+    }
+}
+
+/* Content Styling */
+.message-card {
+    padding: 20px;
+    background: rgba(255, 255, 255, 0.9);
+    border-radius: 12px;
+    max-width: 90%;
+}
+
+.footer-text {
+    font-size: 0.9em;
+    color: #555;
+    border-top: 2px solid #f0f0f0;
+    padding-top: 15px;
+}
