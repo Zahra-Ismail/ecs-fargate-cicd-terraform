@@ -41,7 +41,7 @@ jobs:
       - name: Configure AWS credentials using OIDC
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: arn:aws:iam::395512255485:role/ecs-fargate-terraform-github-role
+          role-to-assume: arn:aws:iam::395512255485:role/ecs-fargate-terraform-Github_Action
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Login to Amazon ECR
