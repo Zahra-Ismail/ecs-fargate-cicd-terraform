@@ -13,7 +13,7 @@ terraform {
 }
 
 provider "aws" {
-  region = "eu-north-1"
+  region = "ap-south-1"
 }
 
 ################################
@@ -45,7 +45,7 @@ module "vpc" {
   name = "${var.project_name}-vpc"
   cidr = "10.0.0.0/16"
 
-  azs             = ["eu-north-1a", "eu-north-1b"]
+  azs             = ["ap-south-1a", "ap-south-1b"]
   public_subnets  = ["10.0.1.0/24", "10.0.2.0/24"]
   private_subnets = ["10.0.11.0/24", "10.0.12.0/24"]
 
@@ -207,7 +207,7 @@ resource "aws_ecs_service" "app" {
   network_configuration {
     subnets         = module.vpc.private_subnets
     security_groups = [aws_security_group.ecs.id]
-    assign_public_ip = false
+    assign_public_ip = true
   }
 
   deployment_minimum_healthy_percent = 50
