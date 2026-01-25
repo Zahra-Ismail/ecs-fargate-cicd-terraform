@@ -207,14 +207,14 @@ resource "aws_ecs_service" "app" {
   launch_type     = "FARGATE"
   desired_count   = 1
 
+  deployment_minimum_healthy_percent = 50
+  deployment_maximum_percent         = 200
+
   network_configuration {
     subnets          = module.vpc.private_subnets
     security_groups  = [aws_security_group.ecs.id]
     assign_public_ip = true
   }
-
-  deployment_minimum_healthy_percent = 50
-  deployment_maximum_healthy_percent = 200
 }
 
 ################################
