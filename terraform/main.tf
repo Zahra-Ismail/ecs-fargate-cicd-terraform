@@ -61,58 +61,43 @@ data "aws_cloudwatch_log_group" "app" {
 }
 
 ################################
-# IAM Role for GitHub Actions (OIDC)
+# IAM Role for GitHub Actions (OIDC) - REUSE EXISTING ROLE
 ################################
-resource "aws_iam_role" "github_action" {
-  name = "Github_Action"
 
-  assume_role_policy = jsonencode({
-    Version = "2012-10-17",
-    Statement = [{
-      Effect = "Allow",
-      Principal = {
-        Federated = data.aws_iam_openid_connect_provider.github.arn
-      },
-      Action = "sts:AssumeRoleWithWebIdentity",
-      Condition = {
-        StringEquals = {
-          "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com",
-          "token.actions.githubusercontent.com:sub" = "repo:${var.github_repo}:ref:refs/heads/main"
-        }
-      }
-    }]
-  })
+# Your role already exists: arn:aws:iam::395512255485:role/Github_Action
+# So do NOT create it again.
+data "aws_iam_role" "github_action" {
+  name = "Github_Action"
 }
 
+# (Optional but recommended)
+# Terraform CAN attach the policy to an existing role.
 resource "aws_iam_role_policy_attachment" "github_admin" {
-  role       = aws_iam_role.github_action.name
+  role       = data.aws_iam_role.github_action.name
   policy_arn = "arn:aws:iam::aws:policy/AdministratorAccess"
 }
 
 ################################
-# VPC
+# VPC - USE DEFAULT VPC (fixes VpcLimitExceeded)
 ################################
-module "vpc" {
-  source  = "terraform-aws-modules/vpc/aws"
-  version = "5.1.2"
 
-  name = "${var.project_name}-vpc"
-  cidr = "10.0.0.0/16"
+data "aws_vpc" "default" {
+  default = true
+}
 
-  azs             = ["eu-north-1a", "eu-north-1b"]
-  public_subnets  = ["10.0.1.0/24", "10.0.2.0/24"]
-  private_subnets = ["10.0.11.0/24", "10.0.12.0/24"]
-
-  enable_nat_gateway = true
-  single_nat_gateway = true
+data "aws_subnets" "default" {
+  filter {
+    name   = "vpc-id"
+    values = [data.aws_vpc.default.id]
+  }
 }
 
 ################################
-# Security Group
+# Security Group (in default VPC)
 ################################
 resource "aws_security_group" "ecs" {
   name   = "${var.project_name}-sg"
-  vpc_id = module.vpc.vpc_id
+  vpc_id = data.aws_vpc.default.id
 
   ingress {
     from_port   = var.container_port
@@ -143,24 +128,12 @@ module "ecs" {
 }
 
 ################################
-# ECS Task Execution Role
+# ECS Task Execution Role - REUSE EXISTING ROLE
 ################################
-resource "aws_iam_role" "ecs_task_execution" {
+
+# This role already exists in your account, so do NOT create it again.
+data "aws_iam_role" "ecs_task_execution" {
   name = "${var.project_name}-task-execution"
-
-  assume_role_policy = jsonencode({
-    Version = "2012-10-17",
-    Statement = [{
-      Effect = "Allow",
-      Principal = { Service = "ecs-tasks.amazonaws.com" },
-      Action = "sts:AssumeRole"
-    }]
-  })
-}
-
-resource "aws_iam_role_policy_attachment" "ecs_execution_policy" {
-  role       = aws_iam_role.ecs_task_execution.name
-  policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
 }
 
 ################################
@@ -172,7 +145,7 @@ resource "aws_ecs_task_definition" "app" {
   network_mode             = "awsvpc"
   cpu                      = 256
   memory                   = 512
-  execution_role_arn       = aws_iam_role.ecs_task_execution.arn
+  execution_role_arn       = data.aws_iam_role.ecs_task_execution.arn
 
   container_definitions = jsonencode([
     {
@@ -211,7 +184,7 @@ resource "aws_ecs_service" "app" {
   deployment_maximum_percent         = 200
 
   network_configuration {
-    subnets          = module.vpc.private_subnets
+    subnets          = data.aws_subnets.default.ids
     security_groups  = [aws_security_group.ecs.id]
     assign_public_ip = true
   }
@@ -221,7 +194,7 @@ resource "aws_ecs_service" "app" {
 # Outputs
 ################################
 output "github_role_arn" {
-  value = aws_iam_role.github_action.arn
+  value = data.aws_iam_role.github_action.arn
 }
 
 output "ecr_repo_url" {
@@ -230,4 +203,8 @@ output "ecr_repo_url" {
 
 output "ecs_cluster_name" {
   value = module.ecs.cluster_name
+}
+
+output "vpc_id_used" {
+  value = data.aws_vpc.default.id
 }
