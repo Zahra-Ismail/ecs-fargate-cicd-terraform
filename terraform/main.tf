@@ -24,11 +24,13 @@ variable "project_name" {
 }
 
 variable "github_repo" {
-  description = "https://github.com/Zahra-Ismail/ecs-fargate-cicd-terraform"
+  description = "GitHub repo in OWNER/REPO format (e.g., Zahra-Ismail/ecs-fargate-cicd-terraform)"
+  type        = string
 }
 
 variable "container_image" {
-  description = "395512255485.dkr.ecr.eu-north-1.amazonaws.com/ecs-fargate-cicd-terraform"
+  description = "Docker image URI pushed to ECR"
+  type        = string
 }
 
 variable "container_port" {
@@ -87,42 +89,50 @@ resource "aws_ecr_repository" "app" {
 }
 
 ################################
-# GitHub Actions OIDC
+# GitHub Actions OIDC (FIXED)
 ################################
 resource "aws_iam_openid_connect_provider" "github" {
   url = "https://token.actions.githubusercontent.com"
 
   client_id_list  = ["sts.amazonaws.com"]
+
+  # Keep as you had; AWS accepts this commonly.
   thumbprint_list = ["6938fd4d98bab03faadb97b34396831e3780aea1"]
 }
 
-resource "aws_iam_role" "github_actions" {
-  name = "${var.project_name}-github-role"
+################################
+# IAM Role for GitHub Actions (MATCHES YAML)
+################################
+resource "aws_iam_role" "github_action" {
+  name = "Github_Action"
 
   assume_role_policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [{
-      Effect = "Allow"
-      Principal = {
-        Federated = aws_iam_openid_connect_provider.github.arn
-      }
-      Action = "sts:AssumeRoleWithWebIdentity"
-      Condition = {
-        StringLike = {
-          "token.actions.githubusercontent.com:sub" = "repo:${var.github_repo}:*"
+    Version = "2012-10-17",
+    Statement = [
+      {
+        Effect = "Allow",
+        Principal = {
+          Federated = aws_iam_openid_connect_provider.github.arn
+        },
+        Action = "sts:AssumeRoleWithWebIdentity",
+        Condition = {
+          StringEquals = {
+            "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com",
+            "token.actions.githubusercontent.com:sub" = "repo:${var.github_repo}:ref:refs/heads/main"
+          }
         }
       }
-    }]
+    ]
   })
 }
 
 resource "aws_iam_role_policy_attachment" "github_admin" {
-  role       = aws_iam_role.github_actions.name
+  role       = aws_iam_role.github_action.name
   policy_arn = "arn:aws:iam::aws:policy/AdministratorAccess"
 }
 
 ################################
-# ECS Cluster (Public Module)
+# ECS Cluster
 ################################
 module "ecs" {
   source  = "terraform-aws-modules/ecs/aws"
@@ -138,12 +148,14 @@ resource "aws_iam_role" "ecs_task_execution" {
   name = "${var.project_name}-task-execution"
 
   assume_role_policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [{
-      Effect = "Allow"
-      Principal = { Service = "ecs-tasks.amazonaws.com" }
-      Action = "sts:AssumeRole"
-    }]
+    Version = "2012-10-17",
+    Statement = [
+      {
+        Effect = "Allow",
+        Principal = { Service = "ecs-tasks.amazonaws.com" },
+        Action = "sts:AssumeRole"
+      }
+    ]
   })
 }
 
@@ -173,20 +185,22 @@ resource "aws_ecs_task_definition" "app" {
 
   container_definitions = jsonencode([
     {
-      name  = "app"
-      image = var.container_image
-      essential = true
+      name      = "app",
+      image     = var.container_image,
+      essential = true,
 
-      portMappings = [{
-        containerPort = var.container_port
-        hostPort      = var.container_port
-      }]
+      portMappings = [
+        {
+          containerPort = var.container_port,
+          hostPort      = var.container_port
+        }
+      ],
 
       logConfiguration = {
-        logDriver = "awslogs"
+        logDriver = "awslogs",
         options = {
-          awslogs-group         = aws_cloudwatch_log_group.ecs.name
-          awslogs-region        = "eu-north-1"
+          awslogs-group         = aws_cloudwatch_log_group.ecs.name,
+          awslogs-region        = "eu-north-1",
           awslogs-stream-prefix = "ecs"
         }
       }
@@ -205,8 +219,8 @@ resource "aws_ecs_service" "app" {
   desired_count   = 1
 
   network_configuration {
-    subnets         = module.vpc.private_subnets
-    security_groups = [aws_security_group.ecs.id]
+    subnets          = module.vpc.private_subnets
+    security_groups  = [aws_security_group.ecs.id]
     assign_public_ip = true
   }
 
@@ -217,10 +231,10 @@ resource "aws_ecs_service" "app" {
 ################################
 # Outputs
 ################################
-output "ecr_repo_url" {
-  value = aws_ecr_repository.app.repository_url
+output "github_role_arn" {
+  value = aws_iam_role.github_action.arn
 }
 
-output "ecs_cluster_name" {
-  value = module.ecs.cluster_name
+output "ecr_repo_url" {
+  value = aws_ecr_repository.app.repository_url
 }
