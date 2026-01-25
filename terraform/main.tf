@@ -39,46 +39,36 @@ variable "container_port" {
 
 locals {
   app_log_group = "/ecs/${var.project_name}"
+  cluster_name  = "${var.project_name}-cluster"
 }
 
 ################################
 # Existing resources (REUSE)
 ################################
 
-# Reuse the existing ECR repo instead of creating it again
 data "aws_ecr_repository" "app" {
   name = var.project_name
 }
 
-# Reuse the existing GitHub OIDC provider instead of creating it again
 data "aws_iam_openid_connect_provider" "github" {
   url = "https://token.actions.githubusercontent.com"
 }
 
-# Reuse the existing CloudWatch log group instead of creating it again
 data "aws_cloudwatch_log_group" "app" {
   name = local.app_log_group
 }
 
-################################
-# IAM Role for GitHub Actions (OIDC) - REUSE EXISTING ROLE
-################################
-
-# Your role already exists: arn:aws:iam::395512255485:role/Github_Action
-# So do NOT create it again.
 data "aws_iam_role" "github_action" {
   name = "Github_Action"
 }
 
-# (Optional but recommended)
-# Terraform CAN attach the policy to an existing role.
 resource "aws_iam_role_policy_attachment" "github_admin" {
   role       = data.aws_iam_role.github_action.name
   policy_arn = "arn:aws:iam::aws:policy/AdministratorAccess"
 }
 
 ################################
-# VPC - USE DEFAULT VPC (fixes VpcLimitExceeded)
+# VPC - USE DEFAULT VPC
 ################################
 
 data "aws_vpc" "default" {
@@ -115,23 +105,15 @@ resource "aws_security_group" "ecs" {
 }
 
 ################################
-# ECS Cluster
+# ECS Cluster - REUSE EXISTING CLUSTER
 ################################
-module "ecs" {
-  source  = "terraform-aws-modules/ecs/aws"
-  version = "5.11.4"
-
-  cluster_name = "${var.project_name}-cluster"
-
-  # Prevent the module from trying to create a cluster log group that already exists
-  create_cloudwatch_log_group = false
+data "aws_ecs_cluster" "existing" {
+  cluster_name = local.cluster_name
 }
 
 ################################
 # ECS Task Execution Role - REUSE EXISTING ROLE
 ################################
-
-# This role already exists in your account, so do NOT create it again.
 data "aws_iam_role" "ecs_task_execution" {
   name = "${var.project_name}-task-execution"
 }
@@ -171,11 +153,11 @@ resource "aws_ecs_task_definition" "app" {
 }
 
 ################################
-# ECS Service
+# ECS Service (IMPORT REQUIRED if it already exists)
 ################################
 resource "aws_ecs_service" "app" {
   name            = var.project_name
-  cluster         = module.ecs.cluster_id
+  cluster         = data.aws_ecs_cluster.existing.arn
   task_definition = aws_ecs_task_definition.app.arn
   launch_type     = "FARGATE"
   desired_count   = 1
@@ -187,6 +169,10 @@ resource "aws_ecs_service" "app" {
     subnets          = data.aws_subnets.default.ids
     security_groups  = [aws_security_group.ecs.id]
     assign_public_ip = true
+  }
+
+  lifecycle {
+    prevent_destroy = true
   }
 }
 
@@ -202,7 +188,7 @@ output "ecr_repo_url" {
 }
 
 output "ecs_cluster_name" {
-  value = module.ecs.cluster_name
+  value = data.aws_ecs_cluster.existing.cluster_name
 }
 
 output "vpc_id_used" {
