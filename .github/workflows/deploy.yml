@@ -1,4 +1,4 @@
-name: Build & Deploy to ECS Fargate
+name: Build & Deploy to ECS Fargate (Terraform)
 
 on:
   push:
@@ -6,7 +6,7 @@ on:
       - main
 
 permissions:
-  id-token: write
+  id-token: write     # REQUIRED for OIDC
   contents: read
 
 env:
@@ -19,54 +19,45 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+    # 1️⃣ Checkout repository
+    - name: Checkout code
+      uses: actions/checkout@v4
 
-      # ✅ Debug step: prints real OIDC claims (sub/aud)
-      # This tells us exactly what AWS must trust.
-      - name: Debug OIDC token claims (sub/aud)
-        shell: bash
-        run: |
-          echo "Requesting OIDC token..."
-          TOKEN_JSON=$(curl -sS -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
-            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=sts.amazonaws.com")
+    # 2️⃣ Configure AWS credentials using OIDC
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        role-to-assume: arn:aws:iam::395512255485:role/ecs-fargate-cicd-terraform-github-role
+        aws-region: ${{ env.AWS_REGION }}
 
-          JWT=$(echo "$TOKEN_JSON" | python -c "import sys,json; print(json.load(sys.stdin)['value'])")
-          PAYLOAD=$(echo "$JWT" | cut -d '.' -f2 | tr '_-' '/+' | python -c "import sys,base64; p=sys.stdin.read().strip(); p += '='*((4-len(p)%4)%4); print(base64.b64decode(p).decode())")
+    # 3️⃣ Login to Amazon ECR
+    - name: Login to Amazon ECR
+      id: login-ecr
+      uses: aws-actions/amazon-ecr-login@v2
 
-          echo "OIDC PAYLOAD:"
-          echo "$PAYLOAD"
-          echo "$PAYLOAD" | python -c "import sys,json; d=json.load(sys.stdin); print('sub =', d.get('sub')); print('aud =', d.get('aud')); print('iss =', d.get('iss'))"
+    # 4️⃣ Build & Push Docker Image
+    - name: Build and push Docker image
+      env:
+        ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        IMAGE_TAG: ${{ github.sha }}
+      run: |
+        docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+        docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+        echo "IMAGE_URI=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_ENV
 
-      - name: Configure AWS credentials using OIDC
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: arn:aws:iam::395512255485:role/ecs-fargate-terraform-Github_Action
-          aws-region: ${{ env.AWS_REGION }}
+    # 5️⃣ Setup Terraform
+    - name: Setup Terraform
+      uses: hashicorp/setup-terraform@v3
 
-      - name: Login to Amazon ECR
-        id: login-ecr
-        uses: aws-actions/amazon-ecr-login@v2
+    # 6️⃣ Terraform Init
+    - name: Terraform Init
+      working-directory: terraform
+      run: terraform init
 
-      - name: Build and push Docker image
-        env:
-          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          IMAGE_TAG: ${{ github.sha }}
-        run: |
-          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
-          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
-          echo "IMAGE_URI=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_ENV
-
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3
-
-      - name: Terraform Init
-        working-directory: terraform
-        run: terraform init
-
-      - name: Terraform Apply
-        working-directory: terraform
-        run: |
-          terraform apply -auto-approve \
-            -var="github_repo=${{ github.repository }}" \
-            -var="container_image=${{ env.IMAGE_URI }}"
+    # 7️⃣ Terraform Apply
+    - name: Terraform Apply (Deploy ECS)
+      working-directory: terraform
+      run: |
+        terraform apply -auto-approve \
+          -var="github_repo=Zahra-Ismail/ecs-fargate-cicd-terraform" \
+          -var="container_image=${{ env.IMAGE_URI }}"
