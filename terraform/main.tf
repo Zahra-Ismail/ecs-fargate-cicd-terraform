@@ -83,25 +83,15 @@ data "aws_subnets" "default" {
 }
 
 ################################
-# Security Group (in default VPC)
+# Security Group - REUSE EXISTING (FIX)
 ################################
-resource "aws_security_group" "ecs" {
-  name   = "${var.project_name}-sg"
+data "aws_security_group" "ecs" {
+  filter {
+    name   = "group-name"
+    values = ["${var.project_name}-sg"]
+  }
+
   vpc_id = data.aws_vpc.default.id
-
-  ingress {
-    from_port   = var.container_port
-    to_port     = var.container_port
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
 }
 
 ################################
@@ -167,7 +157,7 @@ resource "aws_ecs_service" "app" {
 
   network_configuration {
     subnets          = data.aws_subnets.default.ids
-    security_groups  = [aws_security_group.ecs.id]
+    security_groups  = [data.aws_security_group.ecs.id]  # ✅ updated
     assign_public_ip = true
   }
 
