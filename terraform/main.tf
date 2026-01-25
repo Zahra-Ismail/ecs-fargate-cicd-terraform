@@ -24,7 +24,7 @@ variable "project_name" {
 }
 
 variable "github_repo" {
-  description = "GitHub repo in OWNER/REPO format (e.g., Zahra-Ismail/ecs-fargate-cicd-terraform)"
+  description = "GitHub repo in OWNER/REPO format"
   type        = string
 }
 
@@ -35,6 +35,58 @@ variable "container_image" {
 
 variable "container_port" {
   default = 8080
+}
+
+locals {
+  app_log_group = "/ecs/${var.project_name}"
+}
+
+################################
+# Existing resources (REUSE)
+################################
+
+# Reuse the existing ECR repo instead of creating it again
+data "aws_ecr_repository" "app" {
+  name = var.project_name
+}
+
+# Reuse the existing GitHub OIDC provider instead of creating it again
+data "aws_iam_openid_connect_provider" "github" {
+  url = "https://token.actions.githubusercontent.com"
+}
+
+# Reuse the existing CloudWatch log group instead of creating it again
+data "aws_cloudwatch_log_group" "app" {
+  name = local.app_log_group
+}
+
+################################
+# IAM Role for GitHub Actions (OIDC)
+################################
+resource "aws_iam_role" "github_action" {
+  name = "Github_Action"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17",
+    Statement = [{
+      Effect = "Allow",
+      Principal = {
+        Federated = data.aws_iam_openid_connect_provider.github.arn
+      },
+      Action = "sts:AssumeRoleWithWebIdentity",
+      Condition = {
+        StringEquals = {
+          "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com",
+          "token.actions.githubusercontent.com:sub" = "repo:${var.github_repo}:ref:refs/heads/main"
+        }
+      }
+    }]
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "github_admin" {
+  role       = aws_iam_role.github_action.name
+  policy_arn = "arn:aws:iam::aws:policy/AdministratorAccess"
 }
 
 ################################
@@ -78,60 +130,6 @@ resource "aws_security_group" "ecs" {
 }
 
 ################################
-# ECR
-################################
-resource "aws_ecr_repository" "app" {
-  name = var.project_name
-
-  image_scanning_configuration {
-    scan_on_push = true
-  }
-}
-
-################################
-# GitHub Actions OIDC (FIXED)
-################################
-resource "aws_iam_openid_connect_provider" "github" {
-  url = "https://token.actions.githubusercontent.com"
-
-  client_id_list  = ["sts.amazonaws.com"]
-
-  # Keep as you had; AWS accepts this commonly.
-  thumbprint_list = ["6938fd4d98bab03faadb97b34396831e3780aea1"]
-}
-
-################################
-# IAM Role for GitHub Actions (MATCHES YAML)
-################################
-resource "aws_iam_role" "github_action" {
-  name = "Github_Action"
-
-  assume_role_policy = jsonencode({
-    Version = "2012-10-17",
-    Statement = [
-      {
-        Effect = "Allow",
-        Principal = {
-          Federated = aws_iam_openid_connect_provider.github.arn
-        },
-        Action = "sts:AssumeRoleWithWebIdentity",
-        Condition = {
-          StringEquals = {
-            "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com",
-            "token.actions.githubusercontent.com:sub" = "repo:${var.github_repo}:ref:refs/heads/main"
-          }
-        }
-      }
-    ]
-  })
-}
-
-resource "aws_iam_role_policy_attachment" "github_admin" {
-  role       = aws_iam_role.github_action.name
-  policy_arn = "arn:aws:iam::aws:policy/AdministratorAccess"
-}
-
-################################
 # ECS Cluster
 ################################
 module "ecs" {
@@ -139,6 +137,9 @@ module "ecs" {
   version = "5.11.4"
 
   cluster_name = "${var.project_name}-cluster"
+
+  # Prevent the module from trying to create a cluster log group that already exists
+  create_cloudwatch_log_group = false
 }
 
 ################################
@@ -149,27 +150,17 @@ resource "aws_iam_role" "ecs_task_execution" {
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17",
-    Statement = [
-      {
-        Effect = "Allow",
-        Principal = { Service = "ecs-tasks.amazonaws.com" },
-        Action = "sts:AssumeRole"
-      }
-    ]
+    Statement = [{
+      Effect = "Allow",
+      Principal = { Service = "ecs-tasks.amazonaws.com" },
+      Action = "sts:AssumeRole"
+    }]
   })
 }
 
 resource "aws_iam_role_policy_attachment" "ecs_execution_policy" {
   role       = aws_iam_role.ecs_task_execution.name
   policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
-}
-
-################################
-# CloudWatch Logs
-################################
-resource "aws_cloudwatch_log_group" "ecs" {
-  name              = "/ecs/${var.project_name}"
-  retention_in_days = 7
 }
 
 ################################
@@ -189,18 +180,16 @@ resource "aws_ecs_task_definition" "app" {
       image     = var.container_image,
       essential = true,
 
-      portMappings = [
-        {
-          containerPort = var.container_port,
-          hostPort      = var.container_port
-        }
-      ],
+      portMappings = [{
+        containerPort = var.container_port,
+        hostPort      = var.container_port
+      }],
 
       logConfiguration = {
         logDriver = "awslogs",
         options = {
-          awslogs-group         = aws_cloudwatch_log_group.ecs.name,
-          awslogs-region        = "eu-north-1",
+          awslogs-group         = data.aws_cloudwatch_log_group.app.name
+          awslogs-region        = "eu-north-1"
           awslogs-stream-prefix = "ecs"
         }
       }
@@ -225,7 +214,7 @@ resource "aws_ecs_service" "app" {
   }
 
   deployment_minimum_healthy_percent = 50
-  deployment_maximum_percent         = 200
+  deployment_maximum_healthy_percent = 200
 }
 
 ################################
@@ -236,5 +225,9 @@ output "github_role_arn" {
 }
 
 output "ecr_repo_url" {
-  value = aws_ecr_repository.app.repository_url
+  value = data.aws_ecr_repository.app.repository_url
+}
+
+output "ecs_cluster_name" {
+  value = module.ecs.cluster_name
 }
