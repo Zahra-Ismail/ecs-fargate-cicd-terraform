@@ -50,6 +50,30 @@ jobs:
         working-directory: terraform
         run: terraform init
 
+      # ✅ NEW: Import ECS service into TF state if it already exists
+      - name: Terraform Import ECS Service (if exists)
+        working-directory: terraform
+        run: |
+          set +e
+          CLUSTER_NAME="ecs-fargate-cicd-terraform-cluster"
+          SERVICE_NAME="ecs-fargate-cicd-terraform"
+
+          SVC_ARN=$(aws ecs describe-services \
+            --cluster "$CLUSTER_NAME" \
+            --services "$SERVICE_NAME" \
+            --region "${{ env.AWS_REGION }}" \
+            --query "services[0].serviceArn" \
+            --output text 2>/dev/null)
+
+          if [ "$SVC_ARN" != "None" ] && [ -n "$SVC_ARN" ]; then
+            echo "Service exists: $SVC_ARN"
+            echo "Importing into Terraform state..."
+            terraform import aws_ecs_service.app "$CLUSTER_NAME/$SERVICE_NAME" || true
+          else
+            echo "Service does not exist. Terraform will create it."
+          fi
+          set -e
+
       - name: Terraform Apply
         working-directory: terraform
         run: |
