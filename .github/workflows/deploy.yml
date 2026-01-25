@@ -11,7 +11,6 @@ permissions:
 
 env:
   AWS_REGION: eu-north-1
-  PROJECT_NAME: ecs-fargate-cicd-terraform
   ECR_REPOSITORY: ecs-fargate-cicd-terraform
 
 jobs:
@@ -19,7 +18,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout code
+      - name: Checkout
         uses: actions/checkout@v4
 
       - name: Configure AWS credentials (OIDC)
@@ -28,14 +27,14 @@ jobs:
           role-to-assume: arn:aws:iam::395512255485:role/Github_Action
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Verify AWS identity
+      - name: Verify identity
         run: aws sts get-caller-identity
 
       - name: Login to Amazon ECR
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Build and push Docker image
+      - name: Build & Push Docker Image
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
           IMAGE_TAG: ${{ github.sha }}
@@ -51,7 +50,7 @@ jobs:
         working-directory: terraform
         run: terraform init
 
-      - name: Terraform Apply (Deploy ECS)
+      - name: Terraform Apply
         working-directory: terraform
         run: |
           terraform apply -auto-approve \
