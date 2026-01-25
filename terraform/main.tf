@@ -13,7 +13,7 @@ terraform {
 }
 
 provider "aws" {
-  region = "ap-south-1"
+  region = "eu-north-1"
 }
 
 ################################
@@ -45,7 +45,7 @@ module "vpc" {
   name = "${var.project_name}-vpc"
   cidr = "10.0.0.0/16"
 
-  azs             = ["ap-south-1a", "ap-south-1b"]
+  azs             = ["eu-north-1a", "eu-north-1b"]
   public_subnets  = ["10.0.1.0/24", "10.0.2.0/24"]
   private_subnets = ["10.0.11.0/24", "10.0.12.0/24"]
 
@@ -186,7 +186,7 @@ resource "aws_ecs_task_definition" "app" {
         logDriver = "awslogs"
         options = {
           awslogs-group         = aws_cloudwatch_log_group.ecs.name
-          awslogs-region        = "ap-south-1"
+          awslogs-region        = "eu-north-1"
           awslogs-stream-prefix = "ecs"
         }
       }
