@@ -12,6 +12,7 @@ permissions:
 env:
   AWS_REGION: eu-north-1
   ECR_REPOSITORY: ecs-fargate-cicd-terraform
+  TF_INPUT: "false"   
 
 jobs:
   deploy:
@@ -43,6 +44,13 @@ jobs:
           docker push $ECR_REGISTRY/${{ env.ECR_REPOSITORY }}:$IMAGE_TAG
           echo "IMAGE_URI=$ECR_REGISTRY/${{ env.ECR_REPOSITORY }}:$IMAGE_TAG" >> $GITHUB_ENV
 
+      # ✅ Export Terraform variables ONCE (fixes hanging import)
+      - name: Export Terraform variables
+        run: |
+          echo "TF_VAR_github_repo=Zahra-Ismail/ecs-fargate-cicd-terraform" >> $GITHUB_ENV
+          echo "TF_VAR_container_image=${{ env.IMAGE_URI }}" >> $GITHUB_ENV
+          echo "TF_INPUT=false" >> $GITHUB_ENV
+
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
 
@@ -50,7 +58,7 @@ jobs:
         working-directory: terraform
         run: terraform init
 
-      # ✅ NEW: Import ECS service into TF state if it already exists
+      # ✅ Import ECS service if it already exists
       - name: Terraform Import ECS Service (if exists)
         working-directory: terraform
         run: |
@@ -76,7 +84,4 @@ jobs:
 
       - name: Terraform Apply
         working-directory: terraform
-        run: |
-          terraform apply -auto-approve \
-            -var="github_repo=Zahra-Ismail/ecs-fargate-cicd-terraform" \
-            -var="container_image=${{ env.IMAGE_URI }}"
+        run: terraform apply -auto-approve -no-color
