@@ -6,7 +6,7 @@ on:
       - main
 
 permissions:
-  id-token: write     # REQUIRED for OIDC
+  id-token: write
   contents: read
 
 env:
@@ -19,45 +19,41 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    # 1️⃣ Checkout repository
-    - name: Checkout code
-      uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-    # 2️⃣ Configure AWS credentials using OIDC
-    - name: Configure AWS credentials
-      uses: aws-actions/configure-aws-credentials@v4
-      with:
-        role-to-assume: arn:aws:iam::395512255485:role/ecs-fargate-cicd-terraform-github-role
-        aws-region: ${{ env.AWS_REGION }}
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::395512255485:role/Github_Action
+          aws-region: ${{ env.AWS_REGION }}
 
-    # 3️⃣ Login to Amazon ECR
-    - name: Login to Amazon ECR
-      id: login-ecr
-      uses: aws-actions/amazon-ecr-login@v2
+      - name: Verify AWS identity
+        run: aws sts get-caller-identity
 
-    # 4️⃣ Build & Push Docker Image
-    - name: Build and push Docker image
-      env:
-        ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-        IMAGE_TAG: ${{ github.sha }}
-      run: |
-        docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
-        docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
-        echo "IMAGE_URI=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_ENV
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
 
-    # 5️⃣ Setup Terraform
-    - name: Setup Terraform
-      uses: hashicorp/setup-terraform@v3
+      - name: Build and push Docker image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker build -t $ECR_REGISTRY/${{ env.ECR_REPOSITORY }}:$IMAGE_TAG .
+          docker push $ECR_REGISTRY/${{ env.ECR_REPOSITORY }}:$IMAGE_TAG
+          echo "IMAGE_URI=$ECR_REGISTRY/${{ env.ECR_REPOSITORY }}:$IMAGE_TAG" >> $GITHUB_ENV
 
-    # 6️⃣ Terraform Init
-    - name: Terraform Init
-      working-directory: terraform
-      run: terraform init
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
 
-    # 7️⃣ Terraform Apply
-    - name: Terraform Apply (Deploy ECS)
-      working-directory: terraform
-      run: |
-        terraform apply -auto-approve \
-          -var="github_repo=Zahra-Ismail/ecs-fargate-cicd-terraform" \
-          -var="container_image=${{ env.IMAGE_URI }}"
+      - name: Terraform Init
+        working-directory: terraform
+        run: terraform init
+
+      - name: Terraform Apply (Deploy ECS)
+        working-directory: terraform
+        run: |
+          terraform apply -auto-approve \
+            -var="github_repo=Zahra-Ismail/ecs-fargate-cicd-terraform" \
+            -var="container_image=${{ env.IMAGE_URI }}"
