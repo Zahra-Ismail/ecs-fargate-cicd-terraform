@@ -75,15 +75,21 @@ data "aws_vpc" "default" {
   default = true
 }
 
-data "aws_subnets" "default" {
+# ✅ Use PUBLIC subnets only (so task can get a public IPv4)
+data "aws_subnets" "public" {
   filter {
     name   = "vpc-id"
     values = [data.aws_vpc.default.id]
   }
+
+  filter {
+    name   = "map-public-ip-on-launch"
+    values = ["true"]
+  }
 }
 
 ################################
-# Security Group - REUSE EXISTING (FIX)
+# Security Group - REUSE EXISTING
 ################################
 data "aws_security_group" "ecs" {
   filter {
@@ -156,8 +162,8 @@ resource "aws_ecs_service" "app" {
   deployment_maximum_percent         = 200
 
   network_configuration {
-    subnets          = data.aws_subnets.default.ids
-    security_groups  = [data.aws_security_group.ecs.id]  # ✅ updated
+    subnets          = data.aws_subnets.public.ids
+    security_groups  = [data.aws_security_group.ecs.id]
     assign_public_ip = true
   }
 
@@ -183,4 +189,8 @@ output "ecs_cluster_name" {
 
 output "vpc_id_used" {
   value = data.aws_vpc.default.id
+}
+
+output "public_subnet_ids_used" {
+  value = data.aws_subnets.public.ids
 }
